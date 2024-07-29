@@ -3,7 +3,9 @@ using namespace System.Net
 Function Invoke-AddUser {
     <#
     .FUNCTIONALITY
-    Entrypoint
+        Entrypoint
+    .ROLE
+        Identity.User.ReadWrite
     #>
     [CmdletBinding()]
     param($Request, $TriggerMetadata)
@@ -53,6 +55,16 @@ Function Invoke-AddUser {
         $bodyToShip = ConvertTo-Json -Depth 10 -InputObject $BodyToship -Compress
         $GraphRequest = New-GraphPostRequest -uri 'https://graph.microsoft.com/beta/users' -tenantid $UserObj.tenantID -type POST -body $BodyToship -verbose
         Write-LogMessage -user $request.headers.'x-ms-client-principal' -API $APINAME -tenant $($UserObj.tenantID) -message "Created user $($UserObj.displayname) with id $($GraphRequest.id) " -Sev 'Info'
+
+        #PWPush
+        try {
+            $PasswordLink = New-PwPushLink -Payload $password
+            if ($PasswordLink) {
+                $password = $PasswordLink
+            }
+        } catch {
+
+        }
         $results.add('Created user.')
         $results.add("Username: $($UserprincipalName)")
         $results.add("Password: $password")
@@ -61,7 +73,7 @@ Function Invoke-AddUser {
         $body = $results.add("Failed to create user. $($_.Exception.Message)" )
         Push-OutputBinding -Name Response -Value ([HttpResponseContext]@{
                 StatusCode = [HttpStatusCode]::OK
-                Body       = $Body
+                Body       = @{ Results = $Results }
             })
         exit 1
     }
@@ -104,8 +116,8 @@ Function Invoke-AddUser {
     }
     if ($Request.body.CopyFrom -ne '') {
         $CopyFrom = Set-CIPPCopyGroupMembers -ExecutingUser $request.headers.'x-ms-client-principal' -CopyFromId $Request.body.CopyFrom -UserID $UserprincipalName -TenantFilter $UserObj.tenantID
-        $results.Add($CopyFrom.Success -join ', ')
-        $results.Add($CopyFrom.Error -join ', ')
+        $CopyFrom.Success | ForEach-Object { $results.Add($_) }
+        $CopyFrom.Error | ForEach-Object { $results.Add($_) }
     }
 
     if ($Request.body.setManager) {
